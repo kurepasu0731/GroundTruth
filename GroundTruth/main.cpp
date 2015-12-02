@@ -96,9 +96,9 @@ int main()
 	double rx = 0.0;
 	double ry = 0.0;
 	double rz = 0.0;
-	double tx = 0.4;
-	double ty = 0.5;
-	double tz = 0.6;
+	double tx = 0.0;
+	double ty = 0.0;
+	double tz = 0.0;
 
 	cv::Mat rod = (cv::Mat_<double>(3, 1) << rx, ry, rz);
 	cv::Rodrigues(rod, R2); //ロドリゲス
@@ -111,10 +111,12 @@ int main()
 
 	//************************************************
 
-	int npoints = 50; //サンプル点の数
+	int npoints = 100; //サンプル点の数
 	std::vector<cv::Point3d> worldPoints; //対応点の3次元座標
-	std::vector<cv::Point2d> imagePoints1; //カメラ1画像への射影点
-	std::vector<cv::Point2d> imagePoints2; //カメラ2画像への射影点
+	std::vector<cv::Point2d> imagePoints1; //カメラ1画像座標への射影点
+	std::vector<cv::Point2d> imagePoints2; //カメラ2画像座標への射影点
+	std::vector<cv::Point2d> imagePoints1_cv; //カメラ1画像への射影点
+	std::vector<cv::Point2d> imagePoints2_cv; //カメラ2画像への射影点
 
 	double thresh = 2.0; //生成点のしきい値
 
@@ -122,14 +124,18 @@ int main()
     std::random_device rnd;     // 非決定的な乱数生成器を生成  
 	std::mt19937_64 mt(rnd());     //  メルセンヌ・ツイスタの32ビット版、引数は初期シード値
     std::uniform_real_distribution<> rand_x(-thresh, thresh);        // [0, 99] 範囲の一様乱数
-    std::uniform_real_distribution<> rand_y(-thresh, thresh);        // [0, 99] 範囲の一様乱数
-    std::uniform_real_distribution<> rand_z(0, thresh);        // [0, 99] 範囲の一様乱数
+	std::uniform_real_distribution<> rand_y(-thresh, thresh);        // [0, 99] 範囲の一様乱数
+	std::uniform_real_distribution<> rand_z(0, thresh);        // [0, 99] 範囲の一様乱数
+
+	//CV画像上への変換行列
+	cv::Mat M1 = (cv::Mat_<double>(3, 3) << 1, 0, width1/2, 0, -1, height1/2, 0, 0, 1);
+	cv::Mat M2 = (cv::Mat_<double>(3, 3) << 1, 0, width2/2, 0, -1, height2/2, 0, 0, 1);
 
 	//3次元点の生成
 	while(worldPoints.size() < npoints)
 	{
 		cv::Point3d wp((double)rand_x(mt), (double)rand_y(mt), (double)rand_z(mt)); 
-		cv::Point2d imagept1, imagept2;
+		cv::Point2d imagept1, imagept2, imagept1_cv, imagept2_cv;
 
 		//射影
 		cv::Mat _wp =  (cv::Mat_<double>(4, 1) << wp.x, wp.y, wp.z, 1.0);
@@ -145,12 +151,23 @@ int main()
 		imagept1 = cv::Point2d(pt1.at<double>(0,0) / pt1.at<double>(2,0), pt1.at<double>(1,0) / pt1.at<double>(2,0)); 
 		imagept2 = cv::Point2d(pt2.at<double>(0,0) / pt2.at<double>(2,0), pt2.at<double>(1,0) / pt2.at<double>(2,0)); 
 
-		if(0 <= imagept1.x && imagept1.x <= width1 && 0 <= imagept1.y && imagept1.y <= height1 &&
-			0 <= imagept2.x && imagept2.x <= width2 && 0 <= imagept2.y && imagept2.y <= height2)	
+		cv::Mat ip1 = (cv::Mat_<double>(3, 1) << imagept1.x, imagept1.y, 1);
+		cv::Mat ip2 = (cv::Mat_<double>(3, 1) << imagept2.x, imagept2.y, 1);
+		cv::Mat ip1_ = M1 * ip1;
+		cv::Mat ip2_  = M2 * ip2;
+		imagept1_cv = cv::Point2d(ip1_.at<double>(0,0), ip1_.at<double>(1,0));
+		imagept2_cv = cv::Point2d(ip2_.at<double>(0,0), ip2_.at<double>(1,0));
+
+		//if(-width1/2 <= imagept1.x && imagept1.x <= width1/2 && -height1/2 <= imagept1.y && imagept1.y <= height1/2 &&
+		//	-width2/2 <= imagept2.x && imagept2.x <= width2/2 && -height2/2 <= imagept2.y && imagept2.y <= height2/2)	
+		if(0 <= imagept1_cv.x && imagept1_cv.x <= width1 && 0 <= imagept1_cv.y && imagept1_cv.y <= height1 &&
+			0 <= imagept2_cv.x && imagept2_cv.x <= width2 && 0 <= imagept2_cv.y && imagept2_cv.y <= height2)	
 		{
 			worldPoints.push_back(wp);
 			imagePoints1.push_back(imagept1);
 			imagePoints2.push_back(imagept2);
+			imagePoints1_cv.push_back(imagept1_cv);
+			imagePoints2_cv.push_back(imagept2_cv);
 		}
 	}
 	//************************************************
@@ -164,8 +181,8 @@ int main()
 
 	for(int i = 0; i < worldPoints.size(); i++)
 	{
-		cv::circle(image1, imagePoints1[i], 1.0, cv::Scalar(0, 0, 255), 2);
-		cv::circle(image2, imagePoints2[i], 1.0, cv::Scalar(255, 0, 0), 2);
+		cv::circle(image1, imagePoints1_cv[i], 1.0, cv::Scalar(0, 0, 255), 2);
+		cv::circle(image2, imagePoints2_cv[i], 1.0, cv::Scalar(255, 0, 0), 2);
 	}
 
 	cv::Mat resize1(cv::Size(width1/2, height1/2), CV_8UC3);
