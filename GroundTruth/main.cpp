@@ -69,10 +69,10 @@ int main()
 	cv::Mat R1 = cv::Mat::eye(3,3,CV_64F);
 	cv::Mat t1 = cv::Mat::zeros(3,1,CV_64F);
 	//***パラメータ設定***//
-	int width1 = 640;
-	int height1 = 480;
-	double fx = 310.0f;
-	double fy = 310.0f;
+	int width1 = 1600;
+	int height1 = 1400;
+	double fx = 1368.4;
+	double fy = 1365.8;
 	double cx = (double)(width1 / 2);
 	double cy = (double)(height1 / 2);
 
@@ -88,8 +88,8 @@ int main()
 	//***パラメータ設定***//
 	int width2 = 1440;
 	int height2 = 900;
-	fx = 1995.0f;
-	fy = 1995.0f;
+	fx = 1994.9;
+	fy = 1995.3;
 	cx = (double)(width2 / 2);
 	cy = (double)(height2 / 2);
 
