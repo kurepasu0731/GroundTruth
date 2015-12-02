@@ -158,6 +158,25 @@ int main()
 	//ファイルに出力
 	saveFile(K1, K2, R2, t2, worldPoints, imagePoints1, imagePoints2);
 
+	//可視化
+	cv::Mat image1(cv::Size(width1, height1), CV_8UC3, cv::Scalar::all(255));
+	cv::Mat image2(cv::Size(width2, height2), CV_8UC3, cv::Scalar::all(255));
+
+	for(int i = 0; i < worldPoints.size(); i++)
+	{
+		cv::circle(image1, imagePoints1[i], 1.0, cv::Scalar(0, 0, 255), 2);
+		cv::circle(image2, imagePoints2[i], 1.0, cv::Scalar(255, 0, 0), 2);
+	}
+
+	cv::Mat resize1(cv::Size(width1/2, height1/2), CV_8UC3);
+	cv::Mat resize2(cv::Size(width2/2, height2/2), CV_8UC3);
+	cv::resize(image1, resize1, cv::Size(width1/2, height1/2));
+	cv::resize(image2, resize2, cv::Size(width2/2, height2/2));
+
+	cv::imshow("image1", resize1);
+	cv::imshow("image2", resize2);
+
+
 	std::cout << "終了しました. 何かキーを押してください..." << std::endl;
 
 	cv::waitKey(0);
