@@ -69,10 +69,10 @@ int main()
 	cv::Mat R1 = cv::Mat::eye(3,3,CV_64F);
 	cv::Mat t1 = cv::Mat::zeros(3,1,CV_64F);
 	//***パラメータ設定***//
-	int width1 = 1600;
-	int height1 = 1400;
-	double fx = 1368.4;
-	double fy = 1365.8;
+	int width1 = 640;
+	int height1 = 480;
+	double fx = 294.3;
+	double fy = 298.1;
 	double cx = (double)(width1 / 2);
 	double cy = (double)(height1 / 2);
 
@@ -86,19 +86,19 @@ int main()
 	cv::Mat R2 = cv::Mat::eye(3,3,CV_64F);
 	cv::Mat t2;
 	//***パラメータ設定***//
-	int width2 = 1440;
-	int height2 = 900;
-	fx = 1994.9;
-	fy = 1995.3;
+	int width2 = 1280;
+	int height2 = 800;
+	fx = 923.7;
+	fy = 924.5;
 	cx = (double)(width2 / 2);
 	cy = (double)(height2 / 2);
 
 	double rx = 0.0;
 	double ry = 0.0;
 	double rz = 0.0;
-	double tx = 0.0;
-	double ty = 0.0;
-	double tz = 0.0;
+	double tx = 0.1;
+	double ty = 0.2;
+	double tz = 0.3;
 
 	cv::Mat rod = (cv::Mat_<double>(3, 1) << rx, ry, rz);
 	cv::Rodrigues(rod, R2); //ロドリゲス
@@ -111,7 +111,7 @@ int main()
 
 	//************************************************
 
-	int npoints = 100; //サンプル点の数
+	int npoints = 50; //サンプル点の数
 	std::vector<cv::Point3d> worldPoints; //対応点の3次元座標
 	std::vector<cv::Point2d> imagePoints1; //カメラ1画像座標への射影点
 	std::vector<cv::Point2d> imagePoints2; //カメラ2画像座標への射影点
@@ -158,10 +158,10 @@ int main()
 		imagept1_cv = cv::Point2d(ip1_.at<double>(0,0), ip1_.at<double>(1,0));
 		imagept2_cv = cv::Point2d(ip2_.at<double>(0,0), ip2_.at<double>(1,0));
 
-		//if(-width1/2 <= imagept1.x && imagept1.x <= width1/2 && -height1/2 <= imagept1.y && imagept1.y <= height1/2 &&
-		//	-width2/2 <= imagept2.x && imagept2.x <= width2/2 && -height2/2 <= imagept2.y && imagept2.y <= height2/2)	
-		if(0 <= imagept1_cv.x && imagept1_cv.x <= width1 && 0 <= imagept1_cv.y && imagept1_cv.y <= height1 &&
-			0 <= imagept2_cv.x && imagept2_cv.x <= width2 && 0 <= imagept2_cv.y && imagept2_cv.y <= height2)	
+		if(-width1/2 <= imagept1.x && imagept1.x <= width1/2 && -height1/2 <= imagept1.y && imagept1.y <= height1/2 &&
+			-width2/2 <= imagept2.x && imagept2.x <= width2/2 && -height2/2 <= imagept2.y && imagept2.y <= height2/2)	
+		//if(0 <= imagept1_cv.x && imagept1_cv.x <= width1 && 0 <= imagept1_cv.y && imagept1_cv.y <= height1 &&
+		//	0 <= imagept2_cv.x && imagept2_cv.x <= width2 && 0 <= imagept2_cv.y && imagept2_cv.y <= height2)	
 		{
 			worldPoints.push_back(wp);
 			imagePoints1.push_back(imagept1);
