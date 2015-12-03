@@ -95,7 +95,7 @@ int main()
 
 	double rx = 0.0;
 	double ry = 0.0;
-	double rz = 0.0;
+	double rz = 30.0 * CV_PI / 180; //30‹‚Ìƒ‰ƒWƒAƒ“
 	double tx = 0.1;
 	double ty = 0.2;
 	double tz = 0.3;
