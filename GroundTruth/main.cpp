@@ -1,7 +1,10 @@
 #include "Header.h"
 
+#include <Eigen/Dense>
+#include "unsupported/Eigen/NonLinearOptimization"
+#include "unsupported/Eigen/NumericalDiff"
 
-
+using namespace Eigen;
 
 /***********************************
 ** タイムスタンプ取得 **
@@ -61,6 +64,170 @@ void loadFile(const std::string& filename)
 }
 	
 
+/***********************************
+** Eigenを用いたLM法 **
+************************************/
+// Generic functor
+template<typename _Scalar, int NX=Dynamic, int NY=Dynamic>
+struct Functor
+{
+	typedef _Scalar Scalar;
+	enum {
+	InputsAtCompileTime = NX,
+	ValuesAtCompileTime = NY
+	};
+	typedef Matrix<Scalar,InputsAtCompileTime,1> InputType;
+	typedef Matrix<Scalar,ValuesAtCompileTime,1> ValueType;
+	typedef Matrix<Scalar,ValuesAtCompileTime,InputsAtCompileTime> JacobianType;
+};
+
+struct misra1a_functor : Functor<double>
+{
+	// 目的関数
+	misra1a_functor(int inputs, int values, std::vector<cv::Point2d>& proj_p, std::vector<cv::Point2d>& cam_p, cv::Mat& cam_K, cv::Mat& proj_K) 
+		: inputs_(inputs), values_(values), proj_p_(proj_p), cam_p_(cam_p), cam_K_(cam_K), proj_K_(proj_K), projK_inv_t(proj_K_.inv().t()), camK_inv(cam_K.inv()) {}
+    
+	std::vector<cv::Point2d> proj_p_;
+	std::vector<cv::Point2d> cam_p_;
+	const cv::Mat cam_K_;
+	const cv::Mat proj_K_;
+	const cv::Mat projK_inv_t;
+	const cv::Mat camK_inv;
+
+	int operator()(const VectorXd& _Rt, VectorXd& fvec) const
+	{
+		//回転ベクトルから回転行列にする
+		cv::Mat rotateVec = (cv::Mat_<double>(3, 1) << _Rt[0], _Rt[1], _Rt[2]);
+		cv::Mat R(3, 3, CV_64F, cv::Scalar::all(0));
+		Rodrigues(rotateVec, R);
+		//cv::Mat R = (cv::Mat_<double>(3, 3) << _Rt[0], _Rt[1], _Rt[2], _Rt[3], _Rt[4], _Rt[5], _Rt[6], _Rt[7], _Rt[8]);
+		//[t]x
+		cv::Mat tx = (cv::Mat_<double>(3, 3) << 0, -_Rt[5], _Rt[4], _Rt[5], 0, -_Rt[3], -_Rt[4], _Rt[3], 0);
+		//cv::Mat tx = (cv::Mat_<double>(3, 3) << 0, -_Rt[11], _Rt[10], _Rt[11], 0, -_Rt[9], -_Rt[10], _Rt[9], 0);
+		for (int i = 0; i < values_; ++i) {
+			cv::Mat cp = (cv::Mat_<double>(3, 1) << (double)cam_p_.at(i).x,  (double)cam_p_.at(i).y,  1);
+			cv::Mat pp = (cv::Mat_<double>(3, 1) << (double)proj_p_.at(i).x,  (double)proj_p_.at(i).y,  1);
+			cv::Mat error = pp.t() * projK_inv_t * tx * R * camK_inv * cp;
+			fvec[i] = error.at<double>(0, 0);
+			//std::cout << "fvec[" << i << "] = " << fvec[i] << std::endl; 
+		}
+		return 0;
+	}
+
+	//Rの自由度を9にする
+	//int operator()(const VectorXd& _Rt, VectorXd& fvec) const
+	//{
+	//	//cv::Mat R = (cv::Mat_<double>(3, 3) << _Rt[0], _Rt[1], _Rt[2], _Rt[3], _Rt[4], _Rt[5], _Rt[6], _Rt[7], _Rt[8]);
+	//	////[t]x
+	//	//cv::Mat tx = (cv::Mat_<double>(3, 3) << 0, -_Rt[5], _Rt[4], _Rt[5], 0, -_Rt[3], -_Rt[4], _Rt[3], 0);
+	//	for (int i = 0; i < values_; ++i) {
+	//		//cv::Mat cp = (cv::Mat_<double>(3, 1) << (double)cam_p_.at(i).x,  (double)cam_p_.at(i).y,  1);
+	//		//cv::Mat pp = (cv::Mat_<double>(3, 1) << (double)proj_p_.at(i).x,  (double)proj_p_.at(i).y,  1);
+	//		//cv::Mat error = pp.t() * projK_inv_t * tx * R * camK_inv * cp;
+	//		//fvec[i] = error.at<double>(0, 0);
+	//		//直に計算
+	//		fvec[i] = (double)proj_p_.at(i).x * (projK_inv_t.at<double>(0, 0) * (-_Rt[11] * (_Rt[3] * (camK_inv.at<double>(0, 0) * cam_p_.at(i).x + camK_inv.at<double>(0, 1) * cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[4] * (camK_inv.at<double>(1, 0) * cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[5] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) + _Rt[10] * (_Rt[6] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[7] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[8] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2)))) + projK_inv_t.at<double>(0, 1) * (_Rt[11] * (_Rt[0] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[1] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[2] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) - _Rt[9] * (_Rt[6] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[7] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[8] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2)))) + projK_inv_t.at<double>(0, 2) * (-_Rt[10] * (_Rt[0] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[1] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[2] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) + _Rt[9] * (_Rt[3] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[4] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[5] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))))) +
+	//				  (double)proj_p_.at(i).y * (projK_inv_t.at<double>(1, 0) * (-_Rt[11] * (_Rt[3] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[4] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[5] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) + _Rt[10] * (_Rt[6] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[7] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[8] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2)))) + projK_inv_t.at<double>(1, 1) * (_Rt[11] * (_Rt[0] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[1] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[2] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) - _Rt[9] * (_Rt[6] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[7] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[8] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2)))) + projK_inv_t.at<double>(1, 2) * (-_Rt[10] * (_Rt[0] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[1] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[2] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) + _Rt[9] * (_Rt[3] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[4] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[5] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))))) +
+	//				                    projK_inv_t.at<double>(2, 0) * (-_Rt[11] * (_Rt[3] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[4] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[5] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) + _Rt[10] * (_Rt[6] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[7] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[8] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2)))) + projK_inv_t.at<double>(2, 1) * (_Rt[11] * (_Rt[0] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[1] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[2] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) - _Rt[9] * (_Rt[6] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[7] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[8] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2)))) + projK_inv_t.at<double>(2, 2) * (-_Rt[10] * (_Rt[0] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[1] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[2] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))) + _Rt[9] * (_Rt[3] * (camK_inv.at<double>(0, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(0, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(0, 2)) + _Rt[4] * (camK_inv.at<double>(1, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(1, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(1, 2)) + _Rt[5] * (camK_inv.at<double>(2, 0) * (double)cam_p_.at(i).x + camK_inv.at<double>(2, 1) * (double)cam_p_.at(i).y + camK_inv.at<double>(2, 2))));
+	//		//std::cout << "fvec[" << i << "] = " << fvec[i] << std::endl; 
+	//	}
+	//	return 0;
+	//}
+
+	const int inputs_;
+	const int values_;
+	int inputs() const { return inputs_; }
+	int values() const { return values_; }
+};
+
+//計算部分
+void calcProjectorPose(std::vector<cv::Point2d> imagePoints, std::vector<cv::Point2d> projPoints, cv::Mat K1, cv::Mat K2, cv::Mat initialR, cv::Mat initialT, cv::Mat& dstR, cv::Mat& dstT)
+{
+	//回転行列から回転ベクトルにする
+	cv::Mat rotateVec(3, 1,  CV_64F, cv::Scalar::all(0));
+	Rodrigues(initialR, rotateVec);
+
+	int n = 6; //変数の数
+	int info;
+	VectorXd initial(n);
+	initial <<
+		rotateVec.at<double>(0, 0),
+		rotateVec.at<double>(1, 0),
+		rotateVec.at<double>(2, 0),
+		initialT.at<double>(0, 0),
+		initialT.at<double>(1, 0),
+		initialT.at<double>(2, 0);
+
+	misra1a_functor functor(n, imagePoints.size(), projPoints, imagePoints, K1, K2);
+    
+	NumericalDiff<misra1a_functor> numDiff(functor);
+	LevenbergMarquardt<NumericalDiff<misra1a_functor> > lm(numDiff);
+	info = lm.minimize(initial);
+    
+	std::cout << "学習結果: " << std::endl;
+	std::cout <<
+		initial[0] << " " <<
+		initial[1] << " " <<
+		initial[2] << " " <<
+		initial[3] << " " <<
+		initial[4] << " " <<
+		initial[5]	 << std::endl;
+
+	//出力
+	cv::Mat dstRVec = (cv::Mat_<double>(3, 1) << initial[0], initial[1], initial[2]);
+	Rodrigues(dstRVec, dstR);
+	dstT = (cv::Mat_<double>(3, 1) << initial[3], initial[4], initial[5]);
+}
+
+//計算部分(Rの自由度9)
+void calcProjectorPose2(std::vector<cv::Point2d> imagePoints, std::vector<cv::Point2d> projPoints, cv::Mat K1, cv::Mat K2, cv::Mat initialR, cv::Mat initialT, cv::Mat& dstR, cv::Mat& dstT)
+{
+
+	int n = 12; //変数の数
+	int info;
+		
+	VectorXd initial(n);
+	initial <<
+		initialR.at<double>(0, 0),
+		initialR.at<double>(0, 1),
+		initialR.at<double>(0, 2),
+		initialR.at<double>(1, 0),
+		initialR.at<double>(1, 1),
+		initialR.at<double>(1, 2),
+		initialR.at<double>(2, 0),
+		initialR.at<double>(2, 1),
+		initialR.at<double>(2, 2),
+		initialT.at<double>(0, 0),
+		initialT.at<double>(1, 0),
+		initialT.at<double>(2, 0);
+
+
+	misra1a_functor functor(n, imagePoints.size(), projPoints, imagePoints, K1, K2);
+    
+	NumericalDiff<misra1a_functor> numDiff(functor);
+	LevenbergMarquardt<NumericalDiff<misra1a_functor> > lm(numDiff);
+	info = lm.minimize(initial);
+    
+	std::cout << "学習結果: " << std::endl;
+	std::cout <<
+		initial[0] << " " <<
+		initial[1] << " " <<
+		initial[2] << " " <<
+		initial[3] << " " <<
+		initial[4] << " " <<
+		initial[5] << " " <<
+		initial[6] << " " <<
+		initial[7] << " " <<
+		initial[8] << " " <<
+		initial[9] << " " <<
+		initial[10] << " " <<
+		initial[11] << " " << std::endl;
+
+	//出力
+	dstR = (cv::Mat_<double>(3, 3) << initial[0], initial[1], initial[2], initial[3], initial[4], initial[5], initial[6], initial[7], initial[8]);
+	dstT = (cv::Mat_<double>(3, 1) << initial[9], initial[10], initial[11]);
+}
+
 int main()
 {
 	//************************************************
@@ -93,7 +260,7 @@ int main()
 	cx = (double)(width2 / 2);
 	cy = (double)(height2 / 2);
 
-	double rx = 0.0;
+	double rx = 30.0 * CV_PI / 180;
 	double ry = 0.0;
 	double rz = 30.0 * CV_PI / 180; //30°のラジアン
 	double tx = 0.1;
@@ -108,6 +275,17 @@ int main()
 	K2.at<double>(1,1) = fy;
 	K2.at<double>(0,2) = cx;
 	K2.at<double>(1,2) = cy;
+
+	//************************************************
+	//R,tにノイズ付加
+	cv::Mat R2_noise = cv::Mat::eye(3,3,CV_64F);
+	cv::Mat t2_noise;
+
+	cv::Mat rod_noise = (cv::Mat_<double>(3, 1) << rx + 0.0 * CV_PI / 180, ry + 0.0 * CV_PI / 180, rz + 0.0 * CV_PI / 180);
+	cv::Rodrigues(rod_noise, R2_noise); //ロドリゲス
+	t2_noise = (cv::Mat_<double>(3, 1) << tx + 0.35, ty + 0.2, tz - 0.5);
+
+	//************************************************
 
 	//************************************************
 
@@ -192,6 +370,32 @@ int main()
 
 	cv::imshow("image1", resize1);
 	cv::imshow("image2", resize2);
+
+	//エピポーラ方程式が成り立つか確認
+	for(int i =0; i < imagePoints1.size(); i++)
+	{
+		cv::Mat cp = (cv::Mat_<double>(3, 1) << (double)imagePoints1.at(i).x,  (double)imagePoints1.at(i).y,  1);
+		cv::Mat pp = (cv::Mat_<double>(3, 1) << (double)imagePoints2.at(i).x,  (double)imagePoints2.at(i).y,  1);
+		cv::Mat projK_inv_t = K2.inv().t();
+		cv::Mat tx = (cv::Mat_<double>(3, 3) << 0, -t2.at<double>(2,0), t2.at<double>(1,0), t2.at<double>(2,0), 0, -t2.at<double>(0,0), -t2.at<double>(1,0), t2.at<double>(0,0), 0);
+		cv::Mat e = pp.t() * projK_inv_t * tx * R2 * K1.inv() * cp;
+
+		double error = e.at<double>(0, 0);
+
+		std::cout << "e[" << i << "] = " << error << std::endl; 
+	}
+
+	//ノイズ入りから非線形最適化(LM法)で正解が求まるか
+	cv::Mat dstR, dstT;
+	calcProjectorPose(imagePoints1, imagePoints2, K1, K2,  R2_noise, t2_noise, dstR, dstT);
+
+	std::cout << "初期値：" << std::endl; 
+	std::cout << "R: \n" << R2_noise << "\nt: \n" << t2_noise << std::endl;
+	std::cout << "収束値：" << std::endl; 
+	std::cout << "R: \n" << dstR << "\nt: \n" << dstT << std::endl;
+	std::cout << "正解：" << std::endl; 
+	std::cout << "R: \n" << R2 << "\nt: \n" << t2 << std::endl;
+
 
 
 	std::cout << "終了しました. 何かキーを押してください..." << std::endl;
